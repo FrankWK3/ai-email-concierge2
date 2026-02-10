@@ -1,3 +1,30 @@
+## Decision Priority Ladder (Order Matters)
+
+The concierge evaluates emails in the following order and stops at the first matching rule:
+
+1. INTERRUPT NOW  
+   - Replies to conversations I initiated
+   - Personal, professional, or service/support responses
+   - These trigger immediate notification
+
+2. NOTIFY (NON-URGENT)  
+   - Human relationship emails from known contacts
+   - Messages that benefit from timely acknowledgment but do not require interruption
+
+3. LOG SILENTLY  
+   - Transactional confirmations, receipts, statements
+   - Important records with no immediate action required
+
+4. BATCH FOR LATER  
+   - Newsletters, market briefs, informational updates
+   - Reviewed during designated batch windows only
+
+5. IGNORE / AUTO-ARCHIVE  
+   - Promotions, cold outreach, low-value automated emails
+## Stop Rule
+
+Once an email matches a priority level, no further rules are evaluated.
+This prevents over-processing and conflicting actions.
 # Email Policy
 
 ## Notification philosophy

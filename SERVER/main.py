@@ -137,11 +137,26 @@ def _classify(req: ClassifyEmailRequest) -> ClassifyEmailResponse:
     sender_lower = req.sender.lower()
     subject_lower = req.subject.lower()
     body_lower = req.body.lower()
+    # Promo detection (v0.7) — if it's marketing/sales, prefer Ignore over Batch
+    promo_keywords = [
+        "sale", "deal", "promo", "promotion", "limited time", "offer", "save ",
+        "discount", "% off", "clearance", "free shipping", "ends today", "last chance",
+        "exclusive", "coupon", "buy now", "shop now", "today only", "flash sale"
+    ]
 
-    # Auto-detect newsletter
+    is_promo = any(k in subject_lower for k in promo_keywords) or any(k in body_lower for k in promo_keywords)
+
+       # Auto-detect newsletter-like emails
     if not req.is_newsletter:
         if "unsubscribe" in body_lower or "view in browser" in body_lower:
             req.is_newsletter = True
+
+    # If it looks like promo/marketing, treat it as "ignore" rather than "batch"
+    # We implement this by flipping newsletter off and letting default fall to Ignore,
+    # unless another higher-priority rule applies.
+    if req.is_newsletter and is_promo and not req.known_contact and not req.is_reply_to_user:
+        req.is_newsletter = False
+
 
     # Auto-detect transactional
     if not req.is_transactional:
@@ -149,10 +164,11 @@ def _classify(req: ClassifyEmailRequest) -> ClassifyEmailResponse:
         if any(word in subject_lower for word in transactional_keywords):
             req.is_transactional = True
 
-    # Auto-detect promotional sender patterns
+    # Auto-detect newsletter-like sender patterns (but don't batch obvious promos)
     if "no-reply" in sender_lower or "noreply" in sender_lower:
-        if not req.known_contact:
+        if not req.known_contact and not is_promo:
             req.is_newsletter = True
+
 
     # 1) INTERRUPT NOW
     if req.is_reply_to_user:

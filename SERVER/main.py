@@ -180,7 +180,8 @@ def _classify(req: ClassifyEmailRequest) -> ClassifyEmailResponse:
         )
 
     # 2) NOTIFY (NON-URGENT)
-    if req.known_contact:
+    if req.known_contact or req.human_sender:
+
         return ClassifyEmailResponse(
             priority_level="NOTIFY (NON-URGENT)",
             folder="2 - Notify Later",
@@ -219,7 +220,8 @@ def _should_reply(classification: ClassifyEmailResponse, req: ConciergeEmailRequ
     # Reply recommended only for human-centric categories.
     if classification.priority_level in ("INTERRUPT NOW", "NOTIFY (NON-URGENT)"):
         # If it's a reply or known contact, we generally want to respond.
-        return bool(req.is_reply_to_user or req.known_contact)
+            return bool(req.is_reply_to_user or req.known_contact or req.human_sender)
+    
     return False
 
 
@@ -247,6 +249,7 @@ def concierge_email(req: ConciergeEmailRequest):
         body=req.body,
         is_reply_to_user=req.is_reply_to_user,
         known_contact=req.known_contact,
+        human_sender=req.human_sender,
         is_transactional=req.is_transactional,
         is_newsletter=req.is_newsletter,
     ))

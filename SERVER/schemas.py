@@ -16,6 +16,7 @@ class ClassifyEmailRequest(BaseModel):
     known_contact: bool = False
     is_transactional: bool = False
     is_newsletter: bool = False
+    human_sender: bool = False
 
 class ClassifyEmailResponse(BaseModel):
     priority_level: str
@@ -26,6 +27,7 @@ class ConciergeEmailRequest(BaseModel):
     sender: str
     subject: str
     body: str
+    human_sender: bool = False
 
     # Optional hints (can be set by integrations later)
     is_reply_to_user: bool = False

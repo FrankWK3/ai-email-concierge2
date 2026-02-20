@@ -1,6 +1,7 @@
 import json
 import sys
 import requests
+import pyperclip
 def infer_is_reply_to_user(subject: str, body: str) -> bool:
     s = (subject or "").lower()
     b = (body or "").lower()
@@ -74,7 +75,14 @@ def main():
     sender = input("Sender: ").strip()
     subject = input("Subject: ").strip()
 
-    body = prompt_multiline("Body")
+    body = pyperclip.paste().strip()
+    if not body:
+        print("Clipboard is empty. Copy the email body first, then re-run.")
+        sys.exit(1)
+
+    print("\nBody loaded from clipboard (first 200 chars):")
+    print(body[:200] + ("..." if len(body) > 200 else ""))
+
     user_notes = input("\nUser notes (optional): ").strip() or None
 
     inferred_reply = infer_is_reply_to_user(subject, body)

@@ -2,6 +2,7 @@ import os
 import json
 import requests
 import msal
+import base64
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -50,7 +51,16 @@ def get_token(client_id: str, authority: str) -> str:
 def graph_get(token: str, url: str):
     headers = {"Authorization": f"Bearer {token}"}
     r = requests.get(url, headers=headers, timeout=60)
-    r.raise_for_status()
+
+    if not r.ok:
+        print("\n--- GRAPH REQUEST FAILED ---")
+        print("URL:", url)
+        print("Status:", r.status_code)
+        print("WWW-Authenticate:", r.headers.get("WWW-Authenticate"))
+        print("Body:", r.text)
+        print("--- END ---\n")
+        r.raise_for_status()
+
     return r.json()
 
 def graph_post(token: str, url: str, payload=None):
@@ -65,6 +75,24 @@ def graph_patch(token: str, url: str, payload):
     r.raise_for_status()
     return r.json() if r.text else {}
 
+def debug_token_claims(access_token: str):
+    # Decode JWT without verification (safe for debugging claims locally)
+    parts = access_token.split(".")
+    if len(parts) < 2:
+        print("Token doesn't look like a JWT.")
+        return
+
+    payload_b64 = parts[1] + "==="  # pad
+    payload_json = base64.urlsafe_b64decode(payload_b64.encode("utf-8")).decode("utf-8")
+    claims = json.loads(payload_json)
+
+    print("\n--- TOKEN CLAIMS (debug) ---")
+    print("aud:", claims.get("aud"))
+    print("scp:", claims.get("scp"))  # delegated scopes
+    print("tid:", claims.get("tid"))
+    print("preferred_username:", claims.get("preferred_username"))
+    print("--- END ---\n")
+    
 def main():
     # 1) Fill these in once after app registration
     CLIENT_ID = os.getenv("MS_CLIENT_ID")
@@ -74,7 +102,12 @@ def main():
 
     authority = f"https://login.microsoftonline.com/{TENANT}"
     token = get_token(CLIENT_ID, authority)
+    debug_token_claims(token)
 
+    # 🔎 Test simple Graph endpoint first
+    profile = graph_get(token, f"{GRAPH_BASE}/me?$select=displayName,userPrincipalName,id")
+    print("ME:", profile)
+    
     # 2) List latest inbox messages
     inbox = graph_get(
         token,
@@ -119,12 +152,27 @@ def main():
     r.raise_for_status()
     concierge = r.json()
 
+    print("\n=== QUICK VIEW ===")
+    print("Priority:", concierge.get("priority_level"))
+    print("Folder:", concierge.get("folder"))
+    print("Notify:", concierge.get("notify"))
+    print("Reply recommended:", concierge.get("reply_recommended"))
+    print("Reason:", concierge.get("reason"))
     print("\n=== Concierge Output ===")
     print(json.dumps(concierge, indent=2))
 
     if not concierge.get("draft"):
-        print("\nNo draft recommended/generated. Done.")
-        return
+        force = input("\nNo draft generated. Force a draft for testing? (y/N): ").strip().lower() == "y"
+        if not force:
+            print("Done.")
+            return
+
+    # Create a simple test draft body (so we can test Outlook Draft creation)
+    concierge["draft"] = (
+        "Draft reply (TEST):\n\n"
+        "Thanks for the email — received. (This is a test draft to validate Outlook draft creation.)\n\n"
+        "Best,\nFrank"
+    )
 
     # 5) Create a reply draft in Outlook (Graph)
     # This creates a draft reply message; we'll patch the body with our AI draft.

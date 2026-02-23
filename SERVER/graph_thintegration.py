@@ -7,6 +7,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from bs4 import BeautifulSoup
+import re
+
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 LOCAL_CONCIERGE = "http://127.0.0.1:8000/concierge-email"
 SCOPES = ["User.Read", "Mail.Read", "Mail.ReadWrite"]  # add Mail.Send later if you want
@@ -92,6 +95,54 @@ def debug_token_claims(access_token: str):
     print("tid:", claims.get("tid"))
     print("preferred_username:", claims.get("preferred_username"))
     print("--- END ---\n")
+def html_to_text(html: str) -> str:
+    if not html:
+        return ""
+
+    soup = BeautifulSoup(html, "lxml")
+
+    # Remove junk
+    for tag in soup(["script", "style", "img", "svg", "meta", "link"]):
+        tag.decompose()
+
+    text = soup.get_text("\n")
+
+    # Normalize whitespace
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    return text.strip()
+def infer_human_sender(sender: str, subject: str, body: str) -> bool:
+    sender_l = (sender or "").lower()
+    subject_l = (subject or "").lower()
+    body_l = (body or "").lower()
+
+    # Strong non-human patterns
+    nonhuman_sender_markers = ["noreply", "no-reply", "donotreply", "do-not-reply", "mailer-daemon", "notification", "automated"]
+    if any(m in sender_l for m in nonhuman_sender_markers):
+        return False
+
+    # List/newsletter markers (these are big tells)
+    list_markers = ["unsubscribe", "view in browser", "manage preferences", "email preferences"]
+    if any(m in body_l for m in list_markers):
+        return False
+
+    # Transactional indicators
+    transactional_keywords = ["receipt", "invoice", "order", "confirmation", "transaction"]
+    if any(k in subject_l for k in transactional_keywords):
+        return False
+
+    # Human-ish cues: conversational tone / signoff
+    signoffs = ["thanks,", "thank you,", "sincerely,", "best,", "regards,", "talk to you", "see you", "peace,"]
+    if any(s in body_l for s in signoffs):
+        return True
+
+    # Personal email provider domains are often human (not perfect, but good)
+    personal_domains = ["gmail.com", "outlook.com", "hotmail.com", "icloud.com", "yahoo.com", "proton.me", "protonmail.com"]
+    if any(d in sender_l for d in personal_domains):
+        return True
+
+    # Default conservative: unknown
+    return False
     
 def main():
     # 1) Fill these in once after app registration
@@ -139,13 +190,18 @@ def main():
     sender_str = f"{sender.get('name','')} <{sender.get('address','')}>".strip()
     subject = full.get("subject", "")
     body_html = (full.get("body", {}) or {}).get("content", "")
-
+    body_text = html_to_text(body_html)
+    human_sender = infer_human_sender(sender_str, subject, body_text)
+    print("Inferred human_sender =", human_sender)
+    
     # 4) Call your local concierge engine
     payload = {
         "sender": sender_str,
         "subject": subject,
-        "body": body_html,
+        "body": body_text,
         "user_notes": "Draft a concise reply if needed. Do not send.",
+        "human_sender": human_sender
+        
         # minimal hints; heuristics will handle promo/transactional/newsletter
     }
     r = requests.post(LOCAL_CONCIERGE, json=payload, timeout=90)

@@ -217,11 +217,22 @@ def main():
     print("\n=== Concierge Output ===")
     print(json.dumps(concierge, indent=2))
 
-    if not concierge.get("draft"):
-        force = input("\nNo draft generated. Force a draft for testing? (y/N): ").strip().lower() == "y"
+    draft_text = concierge.get("draft")
+
+    if not draft_text:
+        force = input("\nNo AI draft generated. Force a TEST draft to validate Outlook draft creation? (y/N): ").strip().lower() == "y"
         if not force:
             print("Done.")
             return
+
+        draft_text = (
+            "Draft reply (TEST):\n\n"
+            "Thanks for the email — received. (This is a test draft to validate Outlook draft creation.)\n\n"
+            "Best,\nFrank"
+        )
+
+    print("\n=== DRAFT THAT WILL BE WRITTEN TO OUTLOOK ===\n")
+    print(draft_text)
 
     # Create a simple test draft body (so we can test Outlook Draft creation)
     concierge["draft"] = (
@@ -236,8 +247,6 @@ def main():
     draft_id = reply.get("id")
     if not draft_id:
         raise RuntimeError(f"createReply did not return a draft id: {reply}")
-
-    draft_text = concierge["draft"]
 
     # Patch the draft body (HTML) with our drafted text (simple pre-wrap)
     html_body = "<pre style='font-family:Segoe UI, Arial; white-space:pre-wrap;'>" + \

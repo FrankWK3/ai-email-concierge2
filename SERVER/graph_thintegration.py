@@ -144,6 +144,59 @@ def infer_human_sender(sender: str, subject: str, body: str) -> bool:
     # Default conservative: unknown
     return False
     
+def email_addr(email_obj: dict) -> str:
+    # Handles Graph emailAddress object patterns safely
+    if not email_obj:
+        return ""
+    return (email_obj.get("address") or "").lower().strip()
+
+def get_my_address(token: str) -> str:
+    me = graph_get(token, f"{GRAPH_BASE}/me?$select=mail,userPrincipalName")
+    # For consumer accounts, "mail" might be empty; UPN usually exists
+    addr = (me.get("mail") or me.get("userPrincipalName") or "").lower().strip()
+    return addr
+
+def is_bulk_sender(sender_str: str) -> bool:
+    s = (sender_str or "").lower()
+    markers = ["noreply", "no-reply", "donotreply", "do-not-reply", "mailer-daemon", "notification", "automated"]
+    return any(m in s for m in markers)
+
+def conversation_initiated_by_me(token: str, conversation_id: str, my_addr: str) -> bool:
+    """
+    Pull a slice of the conversation and check whether the earliest message
+    appears to be from me. This is a practical heuristic using real metadata.
+    """
+    if not conversation_id:
+        return False
+
+    # Order by receivedDateTime ascending to approximate thread start
+    url = (
+        f"{GRAPH_BASE}/me/messages"
+        f"?$filter=conversationId eq '{conversation_id}'"
+        f"&$top=25"
+        f"&$select=receivedDateTime,from,isDraft"
+    )
+    data = graph_get(token, url)
+    msgs = data.get("value", [])
+
+    # Sort locally to approximate thread start
+    msgs = sorted(msgs, key=lambda m: m.get("receivedDateTime") or "")
+
+    for m in msgs:
+        if m.get("isDraft"):
+            continue
+        frm = (m.get("from", {}) or {}).get("emailAddress", {}) or {}
+        frm_addr = email_addr(frm)
+        if frm_addr:
+            return frm_addr == my_addr
+
+    return False
+    try:
+        initiated_by_me = conversation_initiated_by_me(token, conv_id, my_addr)
+    except Exception as e:
+        print("Warning: conversation thread lookup failed, defaulting initiated_by_me=False:", e)
+        initiated_by_me = False
+
 def main():
     # 1) Fill these in once after app registration
     CLIENT_ID = os.getenv("MS_CLIENT_ID")
@@ -155,6 +208,9 @@ def main():
     token = get_token(CLIENT_ID, authority)
     debug_token_claims(token)
 
+    my_addr = get_my_address(token)
+    print("My address:", my_addr)
+
     # 🔎 Test simple Graph endpoint first
     profile = graph_get(token, f"{GRAPH_BASE}/me?$select=displayName,userPrincipalName,id")
     print("ME:", profile)
@@ -162,8 +218,11 @@ def main():
     # 2) List latest inbox messages
     inbox = graph_get(
         token,
-        f"{GRAPH_BASE}/me/mailFolders/inbox/messages?$top=10&$select=id,subject,from,receivedDateTime,bodyPreview"
+        f"{GRAPH_BASE}/me/mailFolders/inbox/messages"
+        "?$top=10"
+        "&$select=id,subject,from,receivedDateTime,bodyPreview,conversationId"
     )
+
     msgs = inbox.get("value", [])
     if not msgs:
         print("No messages found.")
@@ -180,11 +239,12 @@ def main():
     choice = int(input("Pick a message number to concierge: ").strip())
     picked = msgs[choice - 1]
     msg_id = picked["id"]
+    conv_id = picked.get("conversationId", "")
 
     # 3) Fetch full body
     full = graph_get(
         token,
-        f"{GRAPH_BASE}/me/messages/{msg_id}?$select=subject,from,body"
+        f"{GRAPH_BASE}/me/messages/{msg_id}?$select=subject,from,body,conversationId"
     )
     sender = (full.get("from", {}) or {}).get("emailAddress", {}) or {}
     sender_str = f"{sender.get('name','')} <{sender.get('address','')}>".strip()
@@ -193,6 +253,17 @@ def main():
     body_text = html_to_text(body_html)
     human_sender = infer_human_sender(sender_str, subject, body_text)
     print("Inferred human_sender =", human_sender)
+    conv_id = full.get("conversationId") or conv_id
+
+    sender_obj = (full.get("from", {}) or {}).get("emailAddress", {}) or {}
+    sender_email = email_addr(sender_obj)
+
+    initiated_by_me = conversation_initiated_by_me(token, conv_id, my_addr)
+    is_reply_to_user = bool(initiated_by_me)
+
+    human_sender = (sender_email != my_addr) and (not is_bulk_sender(sender_str))
+
+    print("Metadata hints -> initiated_by_me:", initiated_by_me, "| human_sender:", human_sender)
     
     # 4) Call your local concierge engine
     payload = {
@@ -200,10 +271,13 @@ def main():
         "subject": subject,
         "body": body_text,
         "user_notes": "Draft a concise reply if needed. Do not send.",
-        "human_sender": human_sender
+         "is_reply_to_user": is_reply_to_user,
+        "human_sender": human_sender,
+        "known_contact": False
+    }
         
         # minimal hints; heuristics will handle promo/transactional/newsletter
-    }
+    
     r = requests.post(LOCAL_CONCIERGE, json=payload, timeout=90)
     r.raise_for_status()
     concierge = r.json()

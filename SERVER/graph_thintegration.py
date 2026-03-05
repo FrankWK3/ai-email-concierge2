@@ -191,11 +191,6 @@ def conversation_initiated_by_me(token: str, conversation_id: str, my_addr: str)
             return frm_addr == my_addr
 
     return False
-    try:
-        initiated_by_me = conversation_initiated_by_me(token, conv_id, my_addr)
-    except Exception as e:
-        print("Warning: conversation thread lookup failed, defaulting initiated_by_me=False:", e)
-        initiated_by_me = False
 
 def main():
     # 1) Fill these in once after app registration
@@ -307,13 +302,6 @@ def main():
 
     print("\n=== DRAFT THAT WILL BE WRITTEN TO OUTLOOK ===\n")
     print(draft_text)
-
-    # Create a simple test draft body (so we can test Outlook Draft creation)
-    concierge["draft"] = (
-        "Draft reply (TEST):\n\n"
-        "Thanks for the email — received. (This is a test draft to validate Outlook draft creation.)\n\n"
-        "Best,\nFrank"
-    )
 
     # 5) Create a reply draft in Outlook (Graph)
     # This creates a draft reply message; we'll patch the body with our AI draft.

@@ -66,72 +66,7 @@ User notes (optional):
         raise HTTPException(status_code=500, detail=f"OpenAI error: {e}")
 @app.post("/classify-email", response_model=ClassifyEmailResponse)
 def classify_email(req: ClassifyEmailRequest):
-    """
-    Deterministic classifier (v0.4):
-    Uses your Decision Priority Ladder rules.
-    """
-    sender_lower = req.sender.lower()
-    subject_lower = req.subject.lower()
-    body_lower = req.body.lower()
-
-    # Auto-detect newsletter
-    if not req.is_newsletter:
-        if "unsubscribe" in body_lower or "view in browser" in body_lower:
-            req.is_newsletter = True
-
-    # Auto-detect transactional
-    if not req.is_transactional:
-        transactional_keywords = ["receipt", "invoice", "order", "confirmation", "transaction"]
-        if any(word in subject_lower for word in transactional_keywords):
-            req.is_transactional = True
-
-    # Auto-detect promotional sender patterns
-    if "no-reply" in sender_lower or "noreply" in sender_lower:
-        if not req.known_contact:
-            req.is_newsletter = True
-     # 1) INTERRUPT NOW
-    if req.is_reply_to_user:
-        return ClassifyEmailResponse(
-            priority_level="INTERRUPT NOW",
-            folder="1 - Action Now",
-            notify=True,
-            reason="Reply to a conversation you initiated."
-        )
-
-    # 2) NOTIFY (NON-URGENT)
-    if req.known_contact:
-        return ClassifyEmailResponse(
-            priority_level="NOTIFY (NON-URGENT)",
-            folder="2 - Notify Later",
-            notify=True,
-            reason="Human message from a known contact."
-        )
-
-    # 3) LOG SILENTLY
-    if req.is_transactional:
-        return ClassifyEmailResponse(
-            priority_level="LOG SILENTLY",
-            folder="3 - Log Only",
-            notify=False,
-            reason="Transactional/receipt email: keep for records, no interruption."
-        )
-
-    # 4) BATCH FOR LATER
-    if req.is_newsletter:
-        return ClassifyEmailResponse(
-            priority_level="BATCH FOR LATER",
-            folder="4 - Batch Read",
-            notify=False,
-            reason="Newsletter/brief: review during batch window."
-        )
-
-    # 5) IGNORE / AUTO-ARCHIVE (default)
-    return ClassifyEmailResponse(
-        priority_level="IGNORE / AUTO-ARCHIVE",
-        folder="5 - Ignore (Promo)",
-        notify=False,
-        reason="Default classification: promotional/low-value or unknown importance."
-    )
+    return _classify(req)
 def _classify(req: ClassifyEmailRequest) -> ClassifyEmailResponse:
    
     sender_lower = req.sender.lower()
